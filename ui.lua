@@ -1,156 +1,148 @@
 --==============================================================================
--- disconnect.wtf x Apple UI
--- Premium Dark Purple Edition
+-- disconnect.wtf x Apple UI  |  Premium Dark Purple Edition
 -- Drawing.new UI module
---
--- Usage:
---     local UI = require(path.to.ui)
---     local window = UI.new()
---     window.Controls.SilentAim:SetCallback(function(enabled) ... end)
---     window:Unload()
---
--- Requires an environment that provides Drawing.new.
 --==============================================================================--
 
--- Services (were missing — caused runtime errors on InputBegan / RenderStepped)
 local UIS        = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local UI = {}
 
 local DEFAULT_THEME = {
-    Background  = Color3.fromRGB(13,  13,  17),
-    Sidebar     = Color3.fromRGB(19,  19,  25),
-    Card        = Color3.fromRGB(25,  25,  33),
-    CardHover   = Color3.fromRGB(32,  30,  43),
+    Background  = Color3.fromRGB(11,  11,  15),
+    Sidebar     = Color3.fromRGB(17,  17,  23),
+    Card        = Color3.fromRGB(23,  23,  31),
+    CardHover   = Color3.fromRGB(30,  28,  42),
 
-    Accent      = Color3.fromRGB(145, 85,  255),
-    AccentLight = Color3.fromRGB(175, 125, 255),
+    Accent      = Color3.fromRGB(138, 75,  255),
+    AccentLight = Color3.fromRGB(170, 120, 255),
+    AccentDim   = Color3.fromRGB(80,  40,  160),
 
-    Text        = Color3.fromRGB(245, 245, 250),
-    Muted       = Color3.fromRGB(135, 133, 150),
-    Border      = Color3.fromRGB(42,  40,  53),
+    Text        = Color3.fromRGB(240, 240, 248),
+    Muted       = Color3.fromRGB(120, 118, 140),
+    Border      = Color3.fromRGB(38,  36,  52),
 
-    ToggleOff   = Color3.fromRGB(55,  53,  65),
-    ToggleOn    = Color3.fromRGB(145, 85,  255),
+    ToggleOff   = Color3.fromRGB(50,  48,  62),
+    ToggleOn    = Color3.fromRGB(138, 75,  255),
     White       = Color3.fromRGB(255, 255, 255),
 }
 
-local WINDOW_SIZE    = Vector2.new(650, 420)
-local SIDEBAR_WIDTH  = 155
-local CONTENT_X      = 180
-local CONTENT_WIDTH  = 435
+-- Window dimensions
+local WINDOW_W      = 660
+local WINDOW_H      = 510
+local WINDOW_SIZE   = Vector2.new(WINDOW_W, WINDOW_H)
+local SIDEBAR_W     = 158
+local CONTENT_X     = 183
+local CONTENT_W     = WINDOW_W - CONTENT_X - 18   -- 459px
+local TRACK_W       = CONTENT_W - 30               -- slider track width
 
-local function copyTable(source)
-    local result = {}
-    for k, v in pairs(source) do result[k] = v end
-    return result
+-- Layout constants
+local CTRL_GAP      = 6    -- px between consecutive controls
+local TOGGLE_H      = 60
+local SLIDER_H      = 72
+local SECTION_Y_GAP = 38   -- from section y to first control
+
+local function copyTable(t)
+    local r = {}
+    for k, v in pairs(t) do r[k] = v end
+    return r
 end
 
-local function newDrawing(className, properties)
-    local obj = Drawing.new(className)
-    for k, v in pairs(properties or {}) do obj[k] = v end
-    return obj
+local function newDrawing(cls, props)
+    local o = Drawing.new(cls)
+    for k, v in pairs(props or {}) do o[k] = v end
+    return o
 end
 
-local function makeRoundedRect(position, size, radius, color)
-    local objects = {}
-    local self = {
-        Objects  = objects,
-        Position = position,
+-- Rounded rect built from two overlapping squares + four corner circles
+local function makeRoundedRect(pos, size, radius, color)
+    local objs = {}
+    local s = {
+        Objects  = objs,
+        Position = pos,
         Size     = size,
         Radius   = math.min(radius, size.X / 2, size.Y / 2),
         Removed  = false,
     }
 
-    local horizontal = newDrawing("Square", { Color = color, Filled = true, Transparency = 1, Visible = true })
-    local vertical   = newDrawing("Square", { Color = color, Filled = true, Transparency = 1, Visible = true })
-    table.insert(objects, horizontal)
-    table.insert(objects, vertical)
+    local horiz = newDrawing("Square", { Color=color, Filled=true, Transparency=1, Visible=true })
+    local vert  = newDrawing("Square", { Color=color, Filled=true, Transparency=1, Visible=true })
+    table.insert(objs, horiz); table.insert(objs, vert)
 
     local corners = {}
     for i = 1, 4 do
         local c = newDrawing("Circle", {
-            Radius = self.Radius, NumSides = 24,
-            Filled = true, Color = color, Transparency = 1, Visible = true,
+            Radius=s.Radius, NumSides=32,
+            Filled=true, Color=color, Transparency=1, Visible=true,
         })
-        corners[i] = c
-        table.insert(objects, c)
+        corners[i] = c; table.insert(objs, c)
     end
 
-    function self:SetPosition(p)
+    function s:SetPosition(p)
         if self.Removed then return end
         self.Position = p
-        local s, r = self.Size, self.Radius
-        horizontal.Position = p + Vector2.new(r, 0)
-        horizontal.Size     = Vector2.new(math.max(0, s.X - r * 2), s.Y)
-        vertical.Position   = p + Vector2.new(0, r)
-        vertical.Size       = Vector2.new(s.X, math.max(0, s.Y - r * 2))
-        corners[1].Position = p + Vector2.new(r,        r)
-        corners[2].Position = p + Vector2.new(s.X - r,  r)
-        corners[3].Position = p + Vector2.new(r,        s.Y - r)
-        corners[4].Position = p + Vector2.new(s.X - r,  s.Y - r)
+        local sz, r = self.Size, self.Radius
+        horiz.Position = p + Vector2.new(r, 0)
+        horiz.Size     = Vector2.new(math.max(0, sz.X - r*2), sz.Y)
+        vert.Position  = p + Vector2.new(0, r)
+        vert.Size      = Vector2.new(sz.X, math.max(0, sz.Y - r*2))
+        corners[1].Position = p + Vector2.new(r,       r)
+        corners[2].Position = p + Vector2.new(sz.X-r,  r)
+        corners[3].Position = p + Vector2.new(r,       sz.Y-r)
+        corners[4].Position = p + Vector2.new(sz.X-r,  sz.Y-r)
     end
 
-    function self:SetSize(newSize)
+    function s:SetSize(ns)
         if self.Removed then return end
-        self.Size   = newSize
-        self.Radius = math.min(self.Radius, newSize.X / 2, newSize.Y / 2)
+        self.Size   = ns
+        self.Radius = math.min(self.Radius, ns.X/2, ns.Y/2)
         for _, c in ipairs(corners) do c.Radius = self.Radius end
         self:SetPosition(self.Position)
     end
 
-    function self:SetColor(c)
+    function s:SetColor(c)
         if self.Removed then return end
-        for _, o in ipairs(objects) do o.Color = c end
+        for _, o in ipairs(objs) do o.Color = c end
     end
 
-    function self:SetTransparency(t)
+    function s:SetTransparency(t)
         if self.Removed then return end
-        for _, o in ipairs(objects) do o.Transparency = t end
+        for _, o in ipairs(objs) do o.Transparency = t end
     end
 
-    function self:SetVisible(v)
+    function s:SetVisible(v)
         if self.Removed then return end
-        for _, o in ipairs(objects) do o.Visible = v end
+        for _, o in ipairs(objs) do o.Visible = v end
     end
 
-    function self:Remove()
+    function s:Remove()
         if self.Removed then return end
         self.Removed = true
-        for _, o in ipairs(objects) do o:Remove() end
+        for _, o in ipairs(objs) do o:Remove() end
     end
 
-    self:SetPosition(position)
-    return self
+    s:SetPosition(pos)
+    return s
 end
 
-local function makeText(value, size, color, position, font)
+local function makeText(val, size, color, pos, font)
     return newDrawing("Text", {
-        Text         = tostring(value),
-        Size         = size,
-        Font         = font or 0,
-        Color        = color,
-        Position     = position,
-        Transparency = 1,
-        Visible      = true,
-        Center       = false,
-        Outline      = false,
+        Text=tostring(val), Size=size, Font=font or 0,
+        Color=color, Position=pos, Transparency=1,
+        Visible=true, Center=false, Outline=false,
     })
 end
 
-local function isInside(point, bounds)
-    return bounds
-        and point.X >= bounds.Min.X and point.X <= bounds.Max.X
-        and point.Y >= bounds.Min.Y and point.Y <= bounds.Max.Y
+local function isInside(pt, b)
+    return b
+        and pt.X >= b.Min.X and pt.X <= b.Max.X
+        and pt.Y >= b.Min.Y and pt.Y <= b.Max.Y
 end
 
-local function lerpNumber(a, b, t)
-    return a + (b - a) * t
-end
+local function lerp(a, b, t) return a + (b-a)*t end
 
 --==============================================================================
--- PUBLIC CONSTRUCTOR
+-- CONSTRUCTOR
 --==============================================================================--
 
 function UI.new(options)
@@ -159,96 +151,91 @@ function UI.new(options)
     local theme = copyTable(DEFAULT_THEME)
     for k, v in pairs(options.Theme or {}) do theme[k] = v end
 
-    local userCallbacks = options.Callbacks or {}
+    local userCbs = options.Callbacks or {}
 
-    local window = {
-        Position       = options.Position or Vector2.new(200, 150),
-        TargetPosition = options.Position or Vector2.new(200, 150),
+    local win = {
+        Position       = options.Position or Vector2.new(200, 140),
+        TargetPosition = options.Position or Vector2.new(200, 140),
         Size           = WINDOW_SIZE,
-        SidebarWidth   = SIDEBAR_WIDTH,
-
-        ActiveTab  = "Main",
-        TargetTab  = "Main",
-        TabAlpha   = 1,
-
-        Dragging     = false,
-        DragOffset   = Vector2.zero,
-        ActiveSlider = nil,
-
-        Tabs      = { Main = {}, Misc = {} },
-        Destroyed = false,
+        ActiveTab      = "Main",
+        TargetTab      = "Main",
+        TabAlpha       = 1,
+        Dragging       = false,
+        DragOffset     = Vector2.zero,
+        ActiveSlider   = nil,
+        Tabs           = { Main={}, Misc={} },
+        Destroyed      = false,
     }
 
-    local api = {
-        Controls     = {},
-        Destroyed    = false,
-        OnTabChanged = nil,
-    }
+    local api = { Controls={}, Destroyed=false, OnTabChanged=nil }
 
-    local function register(tabName, element)
-        if not window.Tabs[tabName] then
-            error("Unknown UI tab: " .. tostring(tabName))
-        end
-        table.insert(window.Tabs[tabName], element)
+    local function register(tab, el)
+        assert(win.Tabs[tab], "Unknown tab: "..tostring(tab))
+        table.insert(win.Tabs[tab], el)
     end
 
-    -- ── Section ──────────────────────────────────────────────────────────────
+    -- ── Section label ────────────────────────────────────────────────────────
 
-    local function addSection(tabName, title, subtitle, y)
-        local el = { Tab = tabName, Y = y }
-        el.Title    = makeText(title,    14, theme.Text,  Vector2.zero)
-        el.Subtitle = makeText(subtitle, 10, theme.Muted, Vector2.zero)
+    local function addSection(tab, title, sub, y)
+        local el = { Tab=tab, Y=y }
+        el.Title = makeText(title, 13, theme.Text,  Vector2.zero)
+        el.Sub   = makeText(sub,    9, theme.Muted, Vector2.zero)
+
+        -- Accent pip to the left of title
+        el.Pip   = makeRoundedRect(Vector2.zero, Vector2.new(3, 14), 2, theme.Accent)
 
         function el:UpdateLayout()
-            local p = window.Position
-            self.Title.Position    = p + Vector2.new(CONTENT_X + 5, self.Y)
-            self.Subtitle.Position = p + Vector2.new(CONTENT_X + 5, self.Y + 19)
+            local p = win.Position
+            self.Pip:SetPosition(p + Vector2.new(CONTENT_X, self.Y + 1))
+            self.Title.Position = p + Vector2.new(CONTENT_X + 9, self.Y)
+            self.Sub.Position   = p + Vector2.new(CONTENT_X + 9, self.Y + 17)
         end
-        function el:SetVisible(v)    self.Title.Visible = v;       self.Subtitle.Visible = v    end
-        function el:SetTransparency(t) self.Title.Transparency = t; self.Subtitle.Transparency = t end
-        function el:Remove()         self.Title:Remove();          self.Subtitle:Remove()        end
+
+        function el:SetVisible(v)
+            self.Title.Visible = v; self.Sub.Visible = v; self.Pip:SetVisible(v)
+        end
+        function el:SetTransparency(t)
+            self.Title.Transparency = t; self.Sub.Transparency = t; self.Pip:SetTransparency(t)
+        end
+        function el:Remove()
+            self.Title:Remove(); self.Sub:Remove(); self.Pip:Remove()
+        end
 
         el:UpdateLayout()
-        register(tabName, el)
+        register(tab, el)
         return el
     end
 
     -- ── Toggle ───────────────────────────────────────────────────────────────
 
-    local function addToggle(tabName, key, label, description, defaultValue, y)
+    local function addToggle(tab, key, label, desc, default, y)
         local el = {
-            Tab          = tabName,
-            Key          = key,
-            Name         = label,
-            Description  = description,
-            State        = not not defaultValue,
-            TargetState  = not not defaultValue,
-            KnobProgress = defaultValue and 1 or 0,
-            Y            = y,
-            Bounds       = nil,
-            Callback     = userCallbacks[key],
+            Tab=tab, Key=key, Name=label, Description=desc,
+            State=not not default, TargetState=not not default,
+            KnobProgress=default and 1 or 0,
+            Y=y, Bounds=nil,
+            Callback=userCbs[key],
         }
 
-        el.Card            = makeRoundedRect(Vector2.zero, Vector2.new(CONTENT_WIDTH, 59), 10, theme.Card)
-        el.Label           = makeText(label,       13, theme.Text,  Vector2.zero)
-        el.DescriptionText = makeText(description, 10, theme.Muted, Vector2.zero)
-        el.Switch          = makeRoundedRect(Vector2.zero, Vector2.new(43, 24), 12,
-                                 el.State and theme.ToggleOn or theme.ToggleOff)
-        el.Knob = newDrawing("Circle", {
-            Radius = 9, NumSides = 24, Filled = true,
-            Color = theme.White, Transparency = 1, Visible = true,
+        el.Card = makeRoundedRect(Vector2.zero, Vector2.new(CONTENT_W, TOGGLE_H), 10, theme.Card)
+        el.Label = makeText(label, 13, theme.Text,  Vector2.zero)
+        el.Desc  = makeText(desc,  10, theme.Muted, Vector2.zero)
+        el.Sw    = makeRoundedRect(Vector2.zero, Vector2.new(44, 25), 13,
+                       el.State and theme.ToggleOn or theme.ToggleOff)
+        el.Knob  = newDrawing("Circle", {
+            Radius=9, NumSides=32, Filled=true,
+            Color=theme.White, Transparency=1, Visible=true,
         })
 
         function el:SetCallback(cb)
-            assert(cb == nil or type(cb) == "function", "Callback must be a function or nil")
-            self.Callback = cb
-            return self
+            assert(cb==nil or type(cb)=="function")
+            self.Callback = cb; return self
         end
 
         function el:SetState(state, silent)
             state = not not state
             local changed = self.State ~= state
-            self.State = state; self.TargetState = state
+            self.State=state; self.TargetState=state
             if changed and not silent and self.Callback then self.Callback(state) end
             return self
         end
@@ -256,396 +243,404 @@ function UI.new(options)
         function el:GetState() return self.State end
 
         function el:UpdateLayout(dt)
-            local p   = window.Position
-            local x   = p.X + CONTENT_X
-            local yp  = p.Y + self.Y
+            local p  = win.Position
+            local x  = p.X + CONTENT_X
+            local yp = p.Y + self.Y
 
             self.Card:SetPosition(Vector2.new(x, yp))
-            self.Label.Position           = Vector2.new(x + 15, yp + 11)
-            self.DescriptionText.Position = Vector2.new(x + 15, yp + 32)
+            self.Label.Position = Vector2.new(x + 14, yp + 10)
+            self.Desc.Position  = Vector2.new(x + 14, yp + 30)
 
-            local sx = x + CONTENT_WIDTH - 60
-            local sy = yp + 17
-            self.Switch:SetPosition(Vector2.new(sx, sy))
+            local sx = x + CONTENT_W - 62
+            local sy = yp + 18
+            self.Sw:SetPosition(Vector2.new(sx, sy))
 
-            local target = self.TargetState and 1 or 0
-            self.KnobProgress = lerpNumber(self.KnobProgress, target,
-                math.clamp((dt or 1/60) * 17, 0, 1))
+            local tgt = self.TargetState and 1 or 0
+            self.KnobProgress = lerp(self.KnobProgress, tgt,
+                math.clamp((dt or 1/60)*18, 0, 1))
 
-            self.Switch:SetColor(theme.ToggleOff:Lerp(theme.ToggleOn, self.KnobProgress))
-            self.Knob.Position = Vector2.new(sx + 12 + self.KnobProgress * 19, sy + 12)
+            self.Sw:SetColor(theme.ToggleOff:Lerp(theme.ToggleOn, self.KnobProgress))
+            self.Knob.Position = Vector2.new(sx + 12 + self.KnobProgress*20, sy + 12)
 
             self.Bounds = {
                 Min = Vector2.new(x, yp),
-                Max = Vector2.new(x + CONTENT_WIDTH, yp + 59),
+                Max = Vector2.new(x + CONTENT_W, yp + TOGGLE_H),
             }
         end
 
         function el:SetVisible(v)
-            self.Card:SetVisible(v); self.Switch:SetVisible(v)
-            self.Label.Visible = v;  self.DescriptionText.Visible = v; self.Knob.Visible = v
+            self.Card:SetVisible(v); self.Sw:SetVisible(v)
+            self.Label.Visible=v; self.Desc.Visible=v; self.Knob.Visible=v
         end
         function el:SetTransparency(t)
-            self.Card:SetTransparency(t); self.Switch:SetTransparency(t)
-            self.Label.Transparency = t;  self.DescriptionText.Transparency = t; self.Knob.Transparency = t
+            self.Card:SetTransparency(t); self.Sw:SetTransparency(t)
+            self.Label.Transparency=t; self.Desc.Transparency=t; self.Knob.Transparency=t
         end
         function el:Remove()
-            self.Card:Remove(); self.Switch:Remove()
-            self.Label:Remove(); self.DescriptionText:Remove(); self.Knob:Remove()
+            self.Card:Remove(); self.Sw:Remove()
+            self.Label:Remove(); self.Desc:Remove(); self.Knob:Remove()
         end
 
         el:UpdateLayout(1/60)
-        register(tabName, el)
+        register(tab, el)
         api.Controls[key] = el
         return el
     end
 
     -- ── Slider ───────────────────────────────────────────────────────────────
 
-    local function addSlider(tabName, key, label, minimum, maximum, defaultValue, suffix, y)
-        assert(maximum > minimum, "Slider maximum must be greater than minimum")
-
+    local function addSlider(tab, key, label, minVal, maxVal, default, suffix, y)
+        assert(maxVal > minVal)
         local el = {
-            Tab      = tabName,
-            Key      = key,
-            Name     = label,
-            Min      = minimum,
-            Max      = maximum,
-            Value    = math.clamp(defaultValue, minimum, maximum),
-            Suffix   = suffix or "",
-            Y        = y,
-            Bounds   = nil,
-            Callback = userCallbacks[key],
+            Tab=tab, Key=key, Name=label,
+            Min=minVal, Max=maxVal,
+            Value=math.clamp(default, minVal, maxVal),
+            Suffix=suffix or "",
+            Y=y, Bounds=nil,
+            Callback=userCbs[key],
         }
 
-        el.Card      = makeRoundedRect(Vector2.zero, Vector2.new(CONTENT_WIDTH, 70), 10, theme.Card)
+        el.Card      = makeRoundedRect(Vector2.zero, Vector2.new(CONTENT_W, SLIDER_H), 10, theme.Card)
         el.Label     = makeText(label, 13, theme.Text, Vector2.zero)
-        el.ValueText = makeText(tostring(el.Value) .. " " .. el.Suffix, 11, theme.AccentLight, Vector2.zero)
-        el.Track     = makeRoundedRect(Vector2.zero, Vector2.new(390, 5), 2.5, theme.ToggleOff)
-        el.Fill      = makeRoundedRect(Vector2.zero, Vector2.new(1,   5), 2,   theme.Accent)
+        el.ValueText = makeText(tostring(el.Value).." "..el.Suffix, 11, theme.AccentLight, Vector2.zero)
+        el.Track     = makeRoundedRect(Vector2.zero, Vector2.new(TRACK_W, 4), 2, theme.ToggleOff)
+        el.Fill      = makeRoundedRect(Vector2.zero, Vector2.new(1, 4),       2, theme.Accent)
         el.Knob      = newDrawing("Circle", {
-            Radius = 7, NumSides = 24, Filled = true,
-            Color = theme.White, Visible = true, Transparency = 1,
+            Radius=6, NumSides=32, Filled=true,
+            Color=theme.White, Visible=true, Transparency=1,
+        })
+        -- Knob glow ring
+        el.KnobGlow  = newDrawing("Circle", {
+            Radius=9, NumSides=32, Filled=true,
+            Color=theme.AccentDim, Visible=true, Transparency=0.35,
         })
 
         function el:SetCallback(cb)
-            assert(cb == nil or type(cb) == "function", "Callback must be a function or nil")
-            self.Callback = cb
-            return self
+            assert(cb==nil or type(cb)=="function")
+            self.Callback=cb; return self
         end
 
-        function el:SetValue(value, silent)
-            local next = math.clamp(math.floor(value + 0.5), self.Min, self.Max)
-            local changed = self.Value ~= next
-            self.Value = next
-            self.ValueText.Text = tostring(self.Value) .. " " .. self.Suffix
+        function el:SetValue(val, silent)
+            local nv = math.clamp(math.floor(val + 0.5), self.Min, self.Max)
+            local changed = self.Value ~= nv
+            self.Value = nv
+            self.ValueText.Text = tostring(nv).." "..self.Suffix
             self:UpdateLayout()
-            if changed and not silent and self.Callback then self.Callback(self.Value) end
+            if changed and not silent and self.Callback then self.Callback(nv) end
             return self
         end
 
         function el:GetValue() return self.Value end
 
-        function el:UpdateFromMouse(mouseX)
-            local trackX     = window.Position.X + CONTENT_X + 15
-            local percentage = math.clamp((mouseX - trackX) / 390, 0, 1)
-            self:SetValue(self.Min + (self.Max - self.Min) * percentage)
+        function el:UpdateFromMouse(mx)
+            local tx  = win.Position.X + CONTENT_X + 15
+            local pct = math.clamp((mx - tx) / TRACK_W, 0, 1)
+            self:SetValue(self.Min + (self.Max - self.Min) * pct)
         end
 
         function el:UpdateLayout()
-            local p   = window.Position
-            local x   = p.X + CONTENT_X
-            local yp  = p.Y + self.Y
+            local p  = win.Position
+            local x  = p.X + CONTENT_X
+            local yp = p.Y + self.Y
 
             self.Card:SetPosition(Vector2.new(x, yp))
-            self.Label.Position     = Vector2.new(x + 15, yp + 11)
-            self.ValueText.Position = Vector2.new(x + CONTENT_WIDTH - 90, yp + 11)
+            self.Label.Position     = Vector2.new(x + 14, yp + 10)
+            self.ValueText.Position = Vector2.new(x + CONTENT_W - 85, yp + 10)
 
-            local trackX = p.X + CONTENT_X + 15
-            local trackY = yp + 49
-            local pct    = (self.Value - self.Min) / (self.Max - self.Min)
-            local fw     = math.max(1, pct * 390)
+            local tx  = x + 15
+            local ty  = yp + SLIDER_H - 20
+            local pct = (self.Value - self.Min) / (self.Max - self.Min)
+            local fw  = math.max(1, pct * TRACK_W)
+            local kx  = tx + pct * TRACK_W
 
-            self.Track:SetPosition(Vector2.new(trackX, trackY))
-            self.Fill:SetPosition(Vector2.new(trackX, trackY))
-            self.Fill:SetSize(Vector2.new(fw, 5))
-            self.Knob.Position = Vector2.new(trackX + pct * 390, trackY + 2.5)
+            self.Track:SetPosition(Vector2.new(tx, ty))
+            self.Fill:SetPosition(Vector2.new(tx, ty))
+            self.Fill:SetSize(Vector2.new(fw, 4))
+            self.KnobGlow.Position = Vector2.new(kx, ty + 2)
+            self.Knob.Position     = Vector2.new(kx, ty + 2)
 
             self.Bounds = {
-                Min = Vector2.new(trackX - 7,  trackY - 13),
-                Max = Vector2.new(trackX + 397, trackY + 16),
+                Min = Vector2.new(tx - 10, ty - 14),
+                Max = Vector2.new(tx + TRACK_W + 10, ty + 18),
             }
         end
 
         function el:SetVisible(v)
-            self.Card:SetVisible(v); self.Track:SetVisible(v); self.Fill:SetVisible(v)
-            self.Label.Visible = v;  self.ValueText.Visible = v; self.Knob.Visible = v
+            self.Card:SetVisible(v); self.Track:SetVisible(v)
+            self.Fill:SetVisible(v); self.KnobGlow.Visible=v
+            self.Label.Visible=v; self.ValueText.Visible=v; self.Knob.Visible=v
         end
         function el:SetTransparency(t)
-            self.Card:SetTransparency(t); self.Track:SetTransparency(t); self.Fill:SetTransparency(t)
-            self.Label.Transparency = t;  self.ValueText.Transparency = t; self.Knob.Transparency = t
+            self.Card:SetTransparency(t); self.Track:SetTransparency(t)
+            self.Fill:SetTransparency(t)
+            self.KnobGlow.Transparency = 0.35 * t
+            self.Label.Transparency=t; self.ValueText.Transparency=t; self.Knob.Transparency=t
         end
         function el:Remove()
             self.Card:Remove(); self.Track:Remove(); self.Fill:Remove()
-            self.Label:Remove(); self.ValueText:Remove(); self.Knob:Remove()
+            self.KnobGlow:Remove(); self.Label:Remove(); self.ValueText:Remove(); self.Knob:Remove()
         end
 
         el:UpdateLayout()
-        register(tabName, el)
+        register(tab, el)
         api.Controls[key] = el
         return el
     end
 
     -- ── Window shell ─────────────────────────────────────────────────────────
 
-    local background     = makeRoundedRect(window.Position, window.Size, 15, theme.Background)
-    local sidebar        = makeRoundedRect(window.Position + Vector2.new(8, 8),
-                               Vector2.new(window.SidebarWidth, window.Size.Y - 16), 11, theme.Sidebar)
-    local logo           = makeText(options.Title          or "disconnect.wtf",      17, theme.Text,  Vector2.zero)
-    local logoSubtitle   = makeText(options.BrandSubtitle  or "PREMIUM INTERFACE",    9, theme.Muted, Vector2.zero)
-    local header         = makeText("Main",                                           19, theme.Text,  Vector2.zero)
-    local headerSubtitle = makeText(options.Subtitle       or "Configure your experience", 11, theme.Muted, Vector2.zero)
-    local separator      = newDrawing("Square", {
-        Color = theme.Border, Filled = true, Transparency = 1,
-        Visible = true, Size = Vector2.new(1, 380),
+    local bg          = makeRoundedRect(win.Position, WINDOW_SIZE, 16, theme.Background)
+    local sidebarBg   = makeRoundedRect(Vector2.zero, Vector2.new(SIDEBAR_W, WINDOW_H - 16), 12, theme.Sidebar)
+    local headerLine  = newDrawing("Square", {
+        Color=theme.Border, Filled=true, Transparency=1,
+        Visible=true, Size=Vector2.new(WINDOW_W - SIDEBAR_W - 26, 1),
     })
 
-    -- ── Sidebar tabs ─────────────────────────────────────────────────────────
+    -- Brand block
+    local brandDot   = makeRoundedRect(Vector2.zero, Vector2.new(6, 6), 3, theme.Accent)
+    local brandName  = makeText(options.Title         or "disconnect.wtf",  16, theme.Text,  Vector2.zero)
+    local brandSub   = makeText(options.BrandSubtitle or "PREMIUM",          8, theme.Muted, Vector2.zero)
 
-    local tabButtons = {}
-    local tabDefinitions = {
-        { Name = "Main", Icon = "M", Offset = 95  },
-        { Name = "Misc", Icon = "⚙", Offset = 145 },
+    -- Content header (changes with tab)
+    local hdrTitle   = makeText("Main", 20, theme.Text,  Vector2.zero)
+    local hdrSub     = makeText(options.Subtitle or "Configure your experience", 10, theme.Muted, Vector2.zero)
+
+    -- Vertical separator between sidebar and content
+    local separator  = newDrawing("Square", {
+        Color=theme.Border, Filled=true, Transparency=1,
+        Visible=true, Size=Vector2.new(1, WINDOW_H - 30),
+    })
+
+    -- ── Sidebar tab buttons ───────────────────────────────────────────────────
+
+    local tabDefs = {
+        { Name="Main", Label="Main",   Icon="◈",  Offset=100 },
+        { Name="Misc", Label="Misc",   Icon="⚙",  Offset=148 },
     }
 
-    for _, def in ipairs(tabDefinitions) do
-        local btn = { Name = def.Name, Offset = def.Offset, Bounds = nil }
-        btn.Background = makeRoundedRect(Vector2.zero, Vector2.new(133, 39), 9, theme.Sidebar)
-        btn.Icon       = makeText(def.Icon,  16, theme.Muted, Vector2.zero)
-        btn.Label      = makeText(def.Name,  13, theme.Muted, Vector2.zero)
-        btn.Indicator  = makeRoundedRect(Vector2.zero, Vector2.new(3, 21), 2, theme.Accent)
-        table.insert(tabButtons, btn)
+    local tabBtns = {}
+    for _, def in ipairs(tabDefs) do
+        local b = { Name=def.Name, Offset=def.Offset, Bounds=nil }
+        b.Bg        = makeRoundedRect(Vector2.zero, Vector2.new(136, 38), 9, theme.Sidebar)
+        b.Indicator = makeRoundedRect(Vector2.zero, Vector2.new(3, 20), 2, theme.Accent)
+        b.Icon      = makeText(def.Icon,  13, theme.Muted, Vector2.zero)
+        b.LabelText = makeText(def.Label, 13, theme.Muted, Vector2.zero)
+        table.insert(tabBtns, b)
     end
 
-    -- ── Controls: Main tab ───────────────────────────────────────────────────
+    -- ── Control declarations ─────────────────────────────────────────────────
     --
-    --  y=95  Section header
-    --  y=130 SilentAim         (toggle 59px → ends 189)
-    --  y=196 FieldOfView       (slider  70px → ends 266)
-    --  y=273 RecoilControl     (toggle 59px → ends 332)
-    --  y=339 InfiniteAmmo      (toggle 59px → ends 398)  ← new
+    -- Main tab  (section y=88, controls from y=126, step=TOGGLE_H+CTRL_GAP=66)
+    --   126  RecoilControl
+    --   192  InfiniteAmmo
+    --   258  FullAuto
+    --   324  SpreadLock
+    --   390  MaxPenetration
     --
-    addSection("Main", "Combat", "Weapon and targeting configuration", 95)
-    addToggle("Main", "SilentAim",      "Silent Aim",       "Enable silent targeting",            true,  130)
-    addSlider("Main", "FieldOfView",    "Field of View",    30, 360, 120, "deg",                         196)
-    addToggle("Main", "RecoilControl",  "Recoil Control",   "Zero weapon + camera recoil",        true,  273)
-    addToggle("Main", "InfiniteAmmo",   "Infinite Ammo",    "Set ammo values to math.huge",       true,  339)
+    -- Misc tab  (section y=88, controls from y=126)
+    --   126  Streamproof
+    --   192  UnlockFPS
+    --   258  AutoRescan
+    --   324  FOVCircle
+    --   390  FieldOfView (slider, h=72 → ends 462 < 510 ✓)
+    --
+    local S = TOGGLE_H + CTRL_GAP  -- step between toggle tops = 66
 
-    -- ── Controls: Misc tab ───────────────────────────────────────────────────
-    --
-    --  y=95  Section header
-    --  y=130 FullAuto          (toggle 59px → ends 189)  ← new
-    --  y=196 Streamproof       (toggle 59px → ends 255)
-    --  y=262 TargetDistance    (slider  70px → ends 332)
-    --  y=339 UnlockFPS         (toggle 59px → ends 398)
-    --
-    addSection("Misc", "Miscellaneous", "Additional interface and utility options", 95)
-    addToggle("Misc", "FullAuto",        "Force Full-Auto",  "Set all weapons to ShootType 3",     true,  130)
-    addToggle("Misc", "Streamproof",     "Streamproof",      "Hide overlay from supported captures",true, 196)
-    addSlider("Misc", "TargetDistance",  "Target Distance",  100, 5000, 2500, "m",                        262)
-    addToggle("Misc", "UnlockFPS",       "Unlock FPS",       "Remove the configured frame rate limit",false, 339)
+    addSection("Main", "Combat",        "Weapon modification settings",    88)
+    addToggle ("Main", "RecoilControl", "Recoil Control",  "Zero all weapon and camera recoil vectors",       true,  126)
+    addToggle ("Main", "InfiniteAmmo",  "Infinite Ammo",   "Push ammo counts to math.huge",                   true,  126 + S)
+    addToggle ("Main", "FullAuto",      "Force Full-Auto",  "Set ShootType 3 on every detected weapon",        true,  126 + S*2)
+    addToggle ("Main", "SpreadLock",    "Spread Lock",      "Clamp min/max spread to 0.1, zero step amount",   true,  126 + S*3)
+    addToggle ("Main", "MaxPenetration","Max Penetration",  "Set bullet penetration to 999",                   false, 126 + S*4)
 
-    -- ── Layout & visibility ──────────────────────────────────────────────────
+    addSection("Misc", "Utility",        "Interface and session options",   88)
+    addToggle ("Misc", "Streamproof",   "Streamproof",      "Hide the overlay from screen capture APIs",       true,  126)
+    addToggle ("Misc", "UnlockFPS",     "Unlock FPS",       "Remove the configured frame rate cap",            false, 126 + S)
+    addToggle ("Misc", "AutoRescan",    "Auto Rescan",      "Re-apply weapon mods every 5 seconds",            false, 126 + S*2)
+    addToggle ("Misc", "FOVCircle",     "FOV Circle",       "Draw an aimbot range indicator on screen",        false, 126 + S*3)
+    addSlider ("Misc", "FOVRadius",     "FOV Radius",       30, 500, 120, "px",                                        126 + S*4)
+
+    -- ── Layout ───────────────────────────────────────────────────────────────
 
     local function updateLayout(dt)
-        local p = window.Position
+        local p = win.Position
 
-        background:SetPosition(p)
-        sidebar:SetPosition(p + Vector2.new(8, 8))
+        bg:SetPosition(p)
+        sidebarBg:SetPosition(p + Vector2.new(8, 8))
+        separator.Position = p + Vector2.new(SIDEBAR_W + 8, 15)
 
-        logo.Position           = p + Vector2.new(23, 25)
-        logoSubtitle.Position   = p + Vector2.new(23, 47)
-        header.Position         = p + Vector2.new(CONTENT_X, 25)
-        headerSubtitle.Position = p + Vector2.new(CONTENT_X, 49)
-        separator.Position      = p + Vector2.new(165, 82)
+        -- Brand
+        brandDot:SetPosition(p  + Vector2.new(18, 29))
+        brandName.Position  = p + Vector2.new(30, 23)
+        brandSub.Position   = p + Vector2.new(30, 43)
 
-        for _, btn in ipairs(tabButtons) do
-            local x  = p.X + 16
-            local y  = p.Y + btn.Offset
-            local active = btn.Name == window.TargetTab
+        -- Content header
+        hdrTitle.Position = p + Vector2.new(CONTENT_X, 22)
+        hdrSub.Position   = p + Vector2.new(CONTENT_X, 45)
+        headerLine.Position = p + Vector2.new(CONTENT_X, 66)
 
-            btn.Background:SetPosition(Vector2.new(x, y))
-            btn.Icon.Position   = Vector2.new(x + 13, y + 10)
-            btn.Label.Position  = Vector2.new(x + 43, y + 12)
-            btn.Indicator:SetPosition(Vector2.new(x + 126, y + 9))
+        -- Sidebar buttons
+        for _, b in ipairs(tabBtns) do
+            local bx = p.X + 13
+            local by = p.Y + b.Offset
+            local active = b.Name == win.TargetTab
 
-            btn.Background:SetColor(active and theme.CardHover or theme.Sidebar)
-            btn.Icon.Color  = active and theme.AccentLight or theme.Muted
-            btn.Label.Color = active and theme.Text        or theme.Muted
-            btn.Indicator:SetVisible(active)
+            b.Bg:SetPosition(Vector2.new(bx, by))
+            b.Bg:SetColor(active and theme.CardHover or theme.Sidebar)
 
-            btn.Bounds = {
-                Min = Vector2.new(x, y),
-                Max = Vector2.new(x + 133, y + 39),
+            b.Icon.Position      = Vector2.new(bx + 12, by + 12)
+            b.LabelText.Position = Vector2.new(bx + 33, by + 12)
+            b.Icon.Color      = active and theme.AccentLight or theme.Muted
+            b.LabelText.Color = active and theme.Text        or theme.Muted
+
+            b.Indicator:SetPosition(Vector2.new(bx + 129, by + 9))
+            b.Indicator:SetVisible(active)
+
+            b.Bounds = {
+                Min = Vector2.new(bx, by),
+                Max = Vector2.new(bx + 136, by + 38),
             }
         end
 
-        for _, elements in pairs(window.Tabs) do
-            for _, el in ipairs(elements) do
+        -- All controls
+        for _, els in pairs(win.Tabs) do
+            for _, el in ipairs(els) do
                 el:UpdateLayout(dt)
             end
         end
     end
 
     local function updateVisibility()
-        for tabName, elements in pairs(window.Tabs) do
-            local active = tabName == window.ActiveTab
-            for _, el in ipairs(elements) do
+        for tabName, els in pairs(win.Tabs) do
+            local active = tabName == win.ActiveTab
+            for _, el in ipairs(els) do
                 el:SetVisible(active)
-                el:SetTransparency(window.TabAlpha)
+                el:SetTransparency(win.TabAlpha)
             end
         end
     end
 
-    local function changeTab(tabName)
-        if not window.Tabs[tabName] or window.TargetTab == tabName then return end
-        window.TargetTab = tabName
+    local function switchTab(name)
+        if not win.Tabs[name] or win.TargetTab == name then return end
+        win.TargetTab = name
     end
 
-    -- ── Input / render connections ───────────────────────────────────────────
+    -- ── Connections ───────────────────────────────────────────────────────────
 
-    local inputBeganConnection
-    local inputEndedConnection
-    local renderConnection
+    local conInput, conInputEnd, conRender
 
-    inputBeganConnection = UIS.InputBegan:Connect(function(input)
-        if window.Destroyed then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+    conInput = UIS.InputBegan:Connect(function(inp)
+        if win.Destroyed then return end
+        if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 
-        local mouse = UIS:GetMouseLocation()
+        local m = UIS:GetMouseLocation()
 
-        for _, btn in ipairs(tabButtons) do
-            if isInside(mouse, btn.Bounds) then changeTab(btn.Name); return end
+        for _, b in ipairs(tabBtns) do
+            if isInside(m, b.Bounds) then switchTab(b.Name); return end
         end
 
-        for _, el in ipairs(window.Tabs[window.ActiveTab]) do
-            if el.Bounds and isInside(mouse, el.Bounds) then
+        for _, el in ipairs(win.Tabs[win.ActiveTab]) do
+            if el.Bounds and isInside(m, el.Bounds) then
                 if el.State ~= nil then
                     el:SetState(not el.TargetState)
                 elseif el.Value ~= nil then
-                    window.ActiveSlider = el
-                    el:UpdateFromMouse(mouse.X)
+                    win.ActiveSlider = el
+                    el:UpdateFromMouse(m.X)
                 end
                 return
             end
         end
 
-        -- Drag from top header area
-        if mouse.X >= window.Position.X
-            and mouse.X <= window.Position.X + window.Size.X
-            and mouse.Y >= window.Position.Y
-            and mouse.Y <= window.Position.Y + 75 then
-            window.Dragging   = true
-            window.DragOffset = mouse - window.Position
+        -- Drag zone: top bar
+        if m.X >= win.Position.X and m.X <= win.Position.X + WINDOW_W
+            and m.Y >= win.Position.Y and m.Y <= win.Position.Y + 72 then
+            win.Dragging   = true
+            win.DragOffset = m - win.Position
         end
     end)
 
-    inputEndedConnection = UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            window.Dragging     = false
-            window.ActiveSlider = nil
+    conInputEnd = UIS.InputEnded:Connect(function(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            win.Dragging = false; win.ActiveSlider = nil
         end
     end)
 
-    renderConnection = RunService.RenderStepped:Connect(function(dt)
-        if window.Destroyed then return end
+    conRender = RunService.RenderStepped:Connect(function(dt)
+        if win.Destroyed then return end
 
-        if window.Dragging then
-            local mouse = UIS:GetMouseLocation()
-            window.TargetPosition = mouse - window.DragOffset
+        if win.Dragging then
+            win.TargetPosition = UIS:GetMouseLocation() - win.DragOffset
         end
 
-        window.Position = window.Position:Lerp(
-            window.TargetPosition,
-            math.clamp(dt * 18, 0, 1)
-        )
+        win.Position = win.Position:Lerp(win.TargetPosition, math.clamp(dt * 18, 0, 1))
 
-        if window.ActiveSlider then
-            local mouse = UIS:GetMouseLocation()
-            window.ActiveSlider:UpdateFromMouse(mouse.X)
+        if win.ActiveSlider then
+            win.ActiveSlider:UpdateFromMouse(UIS:GetMouseLocation().X)
         end
 
-        if window.ActiveTab ~= window.TargetTab then
-            window.TabAlpha = math.max(0, window.TabAlpha - dt * 8)
-            if window.TabAlpha <= 0.02 then
-                window.ActiveTab = window.TargetTab
-                header.Text      = window.ActiveTab
-                if api.OnTabChanged then api.OnTabChanged(window.ActiveTab) end
-                window.TabAlpha = 0
+        if win.ActiveTab ~= win.TargetTab then
+            win.TabAlpha = math.max(0, win.TabAlpha - dt * 9)
+            if win.TabAlpha <= 0.02 then
+                win.ActiveTab  = win.TargetTab
+                hdrTitle.Text  = win.ActiveTab
+                if api.OnTabChanged then api.OnTabChanged(win.ActiveTab) end
+                win.TabAlpha = 0
             end
         else
-            window.TabAlpha = math.min(1, window.TabAlpha + dt * 8)
+            win.TabAlpha = math.min(1, win.TabAlpha + dt * 9)
         end
 
         updateLayout(dt)
         updateVisibility()
     end)
 
-    -- ── Public API ───────────────────────────────────────────────────────────
+    -- ── Public API ────────────────────────────────────────────────────────────
 
-    function api:SetTab(tabName)        changeTab(tabName); return self end
-    function api:GetTab()               return window.ActiveTab          end
+    function api:SetTab(name) switchTab(name); return self end
+    function api:GetTab()     return win.ActiveTab           end
 
     function api:SetTabChangedCallback(cb)
-        assert(cb == nil or type(cb) == "function", "Callback must be a function or nil")
-        self.OnTabChanged = cb
-        return self
+        assert(cb==nil or type(cb)=="function"); self.OnTabChanged=cb; return self
     end
 
-    function api:SetToggle(key, value, silent)
+    function api:SetToggle(key, val, silent)
         local c = self.Controls[key]
-        assert(c and c.SetState, "Unknown toggle: " .. tostring(key))
-        c:SetState(value, silent)
-        return self
+        assert(c and c.SetState, "Unknown toggle: "..tostring(key))
+        c:SetState(val, silent); return self
     end
 
-    function api:SetSlider(key, value, silent)
+    function api:SetSlider(key, val, silent)
         local c = self.Controls[key]
-        assert(c and c.SetValue, "Unknown slider: " .. tostring(key))
-        c:SetValue(value, silent)
-        return self
+        assert(c and c.SetValue, "Unknown slider: "..tostring(key))
+        c:SetValue(val, silent); return self
     end
 
     function api:Unload()
-        if window.Destroyed then return end
-        window.Destroyed = true
-        self.Destroyed   = true
-        window.Dragging     = false
-        window.ActiveSlider = nil
+        if win.Destroyed then return end
+        win.Destroyed = true; self.Destroyed = true
+        win.Dragging = false; win.ActiveSlider = nil
 
-        if renderConnection     then renderConnection:Disconnect();     renderConnection     = nil end
-        if inputBeganConnection then inputBeganConnection:Disconnect(); inputBeganConnection = nil end
-        if inputEndedConnection then inputEndedConnection:Disconnect(); inputEndedConnection = nil end
+        if conRender   then conRender:Disconnect()   end
+        if conInput    then conInput:Disconnect()    end
+        if conInputEnd then conInputEnd:Disconnect() end
 
-        background:Remove(); sidebar:Remove()
-        logo:Remove(); logoSubtitle:Remove()
-        header:Remove(); headerSubtitle:Remove()
-        separator:Remove()
+        bg:Remove(); sidebarBg:Remove()
+        separator:Remove(); headerLine:Remove()
+        brandDot:Remove(); brandName:Remove(); brandSub:Remove()
+        hdrTitle:Remove(); hdrSub:Remove()
 
-        for _, btn in ipairs(tabButtons) do
-            btn.Background:Remove(); btn.Indicator:Remove()
-            btn.Icon:Remove();       btn.Label:Remove()
+        for _, b in ipairs(tabBtns) do
+            b.Bg:Remove(); b.Indicator:Remove(); b.Icon:Remove(); b.LabelText:Remove()
         end
 
-        for _, elements in pairs(window.Tabs) do
-            for _, el in ipairs(elements) do el:Remove() end
+        for _, els in pairs(win.Tabs) do
+            for _, el in ipairs(els) do el:Remove() end
         end
     end
 
     updateLayout(1/60)
     updateVisibility()
-
-    print("[disconnect.wtf] UI module initialized.")
+    print("[disconnect.wtf] UI initialized.")
     return api
 end
 
